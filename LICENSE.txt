@@ -1,0 +1,29 @@
+WXSIM Forecast vs Weather Underground Actuals
+Software Licence and Conditions of Use
+
+MillbankPWS
+Copyright © 2026 MillbankPWS. All rights reserved.
+
+Permission is granted to individuals, amateur weather observers, educational users and non-commercial organisations to install and use this software free of charge, subject to the following conditions:
+
+1. The software may be used only for non-commercial purposes. It may not be sold, licensed for payment, incorporated into a commercial product or service, or otherwise used for commercial gain without prior written permission from MillbankPWS.
+
+2. Copyright notices, credits and references to MillbankPWS contained within the software must not be removed, concealed or altered.
+
+3. The supplied scripts must not be modified, adapted, translated, incorporated into another software package or redistributed in modified form without prior written permission from MillbankPWS.
+
+4. Unmodified copies of the complete software package may be shared for non-commercial purposes, provided that this licence and all accompanying documentation are included and remain unchanged.
+
+5. Permission to modify the software for a particular installation may be granted by MillbankPWS on request. Such permission does not automatically grant permission to redistribute the modified software.
+
+6. The software is supplied without warranty. While reasonable efforts have been made to ensure reliability, MillbankPWS does not guarantee that the software will be error-free, uninterrupted or suitable for any particular purpose.
+
+7. MillbankPWS accepts no liability for loss of data, loss of service, incorrect weather information, damage, financial loss or other consequences arising from installation or use of the software.
+
+8. WXSIM, Weather Underground and other third-party products or services referred to by the software remain the property of their respective owners. This software is independently produced and does not imply endorsement by or affiliation with those third parties.
+
+9. The software may communicate with third-party services. Users are responsible for complying with the terms, API conditions and licensing requirements of those services.
+
+10. Installation or use of the software constitutes acceptance of these conditions.
+
+Commercial use, modification or other use outside these terms requires prior written permission from MillbankPWS.
