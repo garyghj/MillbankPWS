@@ -36,6 +36,9 @@ ini_set('display_errors', '1');
 
 require_once __DIR__ . '/config.php';
 
+/* Browser manual capture requires the authenticated Setup session. CLI/CRON is unaffected. */
+wxfa_require_admin_browser();
+
 if (!defined('STATION_TIMEZONE') || trim((string)STATION_TIMEZONE) === '') {
     die('ERROR: STATION_TIMEZONE is not defined in config.php');
 }
