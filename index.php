@@ -4176,6 +4176,112 @@ error_reporting(E_ALL); ini_set('display_errors','1');
 require_once __DIR__.'/config.php';
 header('Content-Type: text/html; charset=UTF-8');
 
+/* Protect Setup & Tests without affecting the four public dashboards. */
+wxfa_start_admin_session();
+$authError = '';
+
+if (isset($_GET['logout'])) {
+    wxfa_admin_logout();
+    header('Location: index.php?page=setup');
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['auth_action'] ?? '') === 'create_admin_password') {
+    $password = (string)($_POST['admin_password'] ?? '');
+    $confirm  = (string)($_POST['admin_password_confirm'] ?? '');
+    if (wxfa_admin_password_configured()) {
+        $authError = 'An administrator password is already configured.';
+    } elseif (strlen($password) < 10) {
+        $authError = 'Choose an administrator password containing at least 10 characters.';
+    } elseif ($password !== $confirm) {
+        $authError = 'The two passwords do not match.';
+    } else {
+        $newSettings = wxfa_load_settings();
+        $newSettings['ADMIN_PASSWORD_HASH'] = password_hash($password, PASSWORD_DEFAULT);
+        if (!is_dir(DATA_DIR)) @mkdir(DATA_DIR, 0775, true);
+        $json = json_encode($newSettings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $tmp = SETTINGS_FILE . '.auth.tmp';
+        if ($json !== false && @file_put_contents($tmp, $json . PHP_EOL, LOCK_EX) !== false && @rename($tmp, SETTINGS_FILE)) {
+            @chmod(SETTINGS_FILE, 0640);
+            $WXFA_SETTINGS = $newSettings;
+            wxfa_set_admin_authenticated(true);
+        }
+        @unlink($tmp);
+        $authError = 'The administrator password could not be saved. Check that the data directory is writable.';
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['auth_action'] ?? '') === 'admin_login') {
+    $password = (string)($_POST['admin_password'] ?? '');
+    $hash = wxfa_admin_hash();
+    if ($hash !== '' && password_verify($password, $hash)) {
+        wxfa_set_admin_authenticated(true);
+    }
+    $authError = 'Incorrect administrator password.';
+}
+
+if (!wxfa_admin_authenticated()) {
+    $creating = !wxfa_admin_password_configured();
+    $title = $creating ? 'Create Setup administrator password' : 'Setup & Tests — Administrator Login';
+    ?><!doctype html>
+    <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <title><?=htmlspecialchars($title,ENT_QUOTES,'UTF-8')?></title>
+    <style>
+    body{font-family:Segoe UI,Arial,sans-serif;background:#eef2f6;color:#1d2733;margin:0}.box{max-width:650px;margin:60px auto;background:#fff;border:1px solid #d8e0e8;border-radius:12px;padding:24px;box-shadow:0 3px 12px rgba(0,0,0,.08)}
+    h1{color:#163b5c;margin-top:0}.note{color:#667482;line-height:1.55}.error{background:#fff0f0;border:1px solid #e4aaaa;color:#8b2020;padding:10px 12px;border-radius:7px;margin:14px 0}label{display:block;font-weight:700;margin:14px 0 6px}input{width:100%;box-sizing:border-box;padding:10px;border:1px solid #bdc8d2;border-radius:6px;font-size:16px}button{margin-top:18px;background:#1769aa;color:#fff;border:0;border-radius:6px;padding:10px 16px;font-weight:700;cursor:pointer}a{color:#1769aa;font-weight:700}
+    </style></head><body><div class="box">
+    <h1><?=htmlspecialchars($title,ENT_QUOTES,'UTF-8')?></h1>
+    <?php if($authError!==''):?><div class="error"><?=htmlspecialchars($authError,ENT_QUOTES,'UTF-8')?></div><?php endif;?>
+    <?php if($creating):?>
+        <p class="note">This is the first protected access to Setup &amp; Tests. Create an administrator password. The password is not stored in the scripts.</p>
+        <form method="post" action="index.php?page=setup">
+        <input type="hidden" name="auth_action" value="create_admin_password">
+        <label for="admin_password">Administrator password</label><input id="admin_password" type="password" name="admin_password" minlength="10" autocomplete="new-password" required>
+        <label for="admin_password_confirm">Confirm password</label><input id="admin_password_confirm" type="password" name="admin_password_confirm" minlength="10" autocomplete="new-password" required>
+        <button type="submit">Create password &amp; open Setup</button></form>
+    <?php else:?>
+        <p class="note">A password is required to protect your configuration details when this installation is published on the internet. The password is not stored in the scripts.</p>
+        <form method="post" action="index.php?page=setup">
+        <input type="hidden" name="auth_action" value="admin_login">
+        <label for="admin_password">Administrator password</label><input id="admin_password" type="password" name="admin_password" autocomplete="current-password" required autofocus>
+        <button type="submit">Sign in</button></form>
+    <?php endif;?>
+    <p class="note" style="margin-top:22px"><a href="index.php?page=stage1">Return to 7-Day Comparison</a></p>
+    </div></body></html><?php
+    exit;
+}
+
+/* Password manager: available only after administrator login. */
+$passwordMessage = '';
+$passwordError = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'change_admin_password') {
+    $currentPassword = (string)($_POST['current_admin_password'] ?? '');
+    $newPassword = (string)($_POST['new_admin_password'] ?? '');
+    $confirmPassword = (string)($_POST['confirm_admin_password'] ?? '');
+    $currentHash = wxfa_admin_hash();
+
+    if ($currentHash === '' || !password_verify($currentPassword, $currentHash)) {
+        $passwordError = 'The current administrator password is incorrect.';
+    } elseif (strlen($newPassword) < 10) {
+        $passwordError = 'The new administrator password must contain at least 10 characters.';
+    } elseif ($newPassword !== $confirmPassword) {
+        $passwordError = 'The two new passwords do not match.';
+    } else {
+        $changedSettings = wxfa_load_settings();
+        $changedSettings['ADMIN_PASSWORD_HASH'] = password_hash($newPassword, PASSWORD_DEFAULT);
+        $json = json_encode($changedSettings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $tmp = SETTINGS_FILE . '.password.tmp';
+        if ($json !== false && @file_put_contents($tmp, $json . PHP_EOL, LOCK_EX) !== false && @rename($tmp, SETTINGS_FILE)) {
+            @chmod(SETTINGS_FILE, 0640);
+            $WXFA_SETTINGS = $changedSettings;
+            $passwordMessage = 'Administrator password changed successfully.';
+        } else {
+            @unlink($tmp);
+            $passwordError = 'The new administrator password could not be saved.';
+        }
+    }
+}
+
 function h($v): string { return htmlspecialchars((string)$v,ENT_QUOTES,'UTF-8'); }
 function ensure_dir(string $p): bool { return is_dir($p) || @mkdir($p,0775,true); }
 function valid_tz(string $tz): bool { try { new DateTimeZone($tz); return $tz!==''; } catch(Throwable $e){ return false; } }
@@ -4264,7 +4370,7 @@ function wu_diag(string $station,string $key): array {
 $settings=wxfa_load_settings(); $messages=[];$errors=[];$savedNow=false;
 $days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];$wuUnits=['metric','imperial'];$disp=['uk','metric','imperial'];
 if($_SERVER['REQUEST_METHOD']==='POST'&&($_POST['action']??'')==='save_settings'){
-    $c=['SITE_NAME'=>trim((string)($_POST['SITE_NAME']??'')),'SITE_LOCATION'=>trim((string)($_POST['SITE_LOCATION']??'')),'STATION_TIMEZONE'=>trim((string)($_POST['STATION_TIMEZONE']??'')),'WXSIM_LATEST_CSV'=>trim((string)($_POST['WXSIM_LATEST_CSV']??'')),'WXSIM_OUTPUT_UNITS'=>strtolower(trim((string)($_POST['WXSIM_OUTPUT_UNITS']??''))),'FORECAST_START_DAY'=>trim((string)($_POST['FORECAST_START_DAY']??'')),'WU_STATION_ID'=>strtoupper(trim((string)($_POST['WU_STATION_ID']??''))),'WU_API_KEY'=>trim((string)($_POST['WU_API_KEY']??'')),'DISPLAY_UNITS'=>strtolower(trim((string)($_POST['DISPLAY_UNITS']??'')))];
+    $c=['SITE_NAME'=>trim((string)($_POST['SITE_NAME']??'')),'SITE_LOCATION'=>trim((string)($_POST['SITE_LOCATION']??'')),'STATION_TIMEZONE'=>trim((string)($_POST['STATION_TIMEZONE']??'')),'WXSIM_LATEST_CSV'=>trim((string)($_POST['WXSIM_LATEST_CSV']??'')),'WXSIM_OUTPUT_UNITS'=>strtolower(trim((string)($_POST['WXSIM_OUTPUT_UNITS']??''))),'FORECAST_START_DAY'=>trim((string)($_POST['FORECAST_START_DAY']??'')),'WU_STATION_ID'=>strtoupper(trim((string)($_POST['WU_STATION_ID']??''))),'WU_API_KEY'=>trim((string)($_POST['WU_API_KEY']??'')),'DISPLAY_UNITS'=>strtolower(trim((string)($_POST['DISPLAY_UNITS']??''))),'ADMIN_PASSWORD_HASH'=>(string)($settings['ADMIN_PASSWORD_HASH']??'')];
     if($c['WU_API_KEY']===''&&($settings['WU_API_KEY']??'')!=='')$c['WU_API_KEY']=$settings['WU_API_KEY'];
     if($c['SITE_NAME']==='') $errors[]='Station / site name is required.';
     if($c['SITE_LOCATION']==='') $errors[]='Station location is required.';
@@ -4321,12 +4427,12 @@ $localReady=$phpOK&&$dataOK&&$weeksOK&&$logsOK&&$settingsOK&&$tzOK&&$wxuOK&&$dis
 :root{--bg:#f3f5f7;--panel:#fff;--ink:#1f2933;--muted:#65727e;--line:#d8dee4;--head:#173f5f;--accent:#1769aa;--pass:#16733c;--fail:#b42318;--warn:#9a6700}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:Arial,Helvetica,sans-serif}.wrap{max-width:1180px;margin:auto;padding:18px}header,.panel{background:#fff;border:1px solid var(--line);border-radius:10px;margin-bottom:12px}header{background:linear-gradient(135deg,#eaf4fb,#f7fbfd);border-color:#b9d5e8;padding:16px 20px}.panel{padding:16px 18px}h1{margin:0 0 5px;color:var(--head);font-size:25px}.sub,.small,.help{color:var(--muted);font-size:12px;line-height:1.5}.panel h2{font-size:18px;margin:0 0 12px;color:var(--head);border-bottom:2px solid #d7e9f4;padding-bottom:7px}.panel h3{font-size:15px;color:var(--head);margin:18px 0 8px}.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}.box{background:#fff;border:1px solid var(--line);border-top:4px solid #4a90b8;border-radius:9px;padding:12px}.box .k{font-size:11px;color:var(--muted);text-transform:uppercase}.box .v{margin-top:6px;font-size:18px;font-weight:bold}.badge{display:inline-block;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:bold}.pass{background:#e9f7ee;color:var(--pass)}.fail{background:#fdecec;color:var(--fail)}.wait{background:#fff5d9;color:var(--warn)}.message{padding:11px 13px;border-radius:7px;margin-bottom:10px}.ok{background:#edf8f0;border:1px solid #b9dfc4}.bad{background:#fff0f0;border:1px solid #efc0c0}.formgrid{display:grid;grid-template-columns:310px 1fr;border:1px solid var(--line);border-radius:8px;overflow:hidden}.formrow{display:contents}.formlabel,.formfield{padding:12px 14px;border-bottom:1px solid var(--line)}.formlabel{background:#fafbfc}.formlabel strong{display:block;font-size:13px;margin-bottom:4px}.formrow:last-child .formlabel,.formrow:last-child .formfield{border-bottom:0}input,select{width:100%;padding:9px 10px;border:1px solid #bcc7d0;border-radius:6px;background:#fff}code{background:#f0f2f4;padding:2px 5px;border-radius:4px}.buttons{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}button{border:0;border-radius:7px;padding:9px 14px;font-weight:bold;cursor:pointer;background:var(--accent);color:#fff}.test{background:#2e6f55}.secondary{background:#526673}table{width:100%;border-collapse:collapse}th,td{padding:8px 9px;border-bottom:1px solid #e5e9ed;text-align:left;vertical-align:top;font-size:13px}th{width:27%;background:#fafbfc}td:nth-child(2){width:82px}pre{white-space:pre-wrap;word-break:break-word;background:#f7f8fa;border:1px solid #e0e4e8;border-radius:6px;padding:10px;font-size:12px}footer{text-align:center;color:var(--muted);font-size:12px;padding:8px 0 20px}@media(max-width:800px){.summary{grid-template-columns:1fr}.formgrid{display:block}.formrow,.formlabel,.formfield{display:block}th,td{display:block;width:100%!important}}
 .suite-nav{display:flex;gap:7px;flex-wrap:wrap;margin:0 0 10px}.suite-nav a{text-decoration:none;color:#174a70;background:#edf7fc;border:1px solid #b8d8e9;border-radius:7px;padding:7px 11px;font-size:12px;font-weight:700}.suite-nav a:hover{background:#dff1fa}.suite-nav a.current{background:#1769aa;color:#fff;border-color:#1769aa}</style></head><body><div class="wrap">
 <header><h1>Setup &amp; Tests</h1><div class="sub">WXSIM Forecast vs Weather Underground Actuals. Complete the configuration, save it, then run both connection tests. Settings are stored in <code>data/settings.json</code>; <code>config.php</code> remains fixed.</div></header>
-<nav class="suite-nav" aria-label="WXSIM forecast pages"><a href="index.php?page=stage1">7-Day Comparison</a><a href="index.php?page=detailed">Detailed Comparison</a><a href="index.php?page=stage2">Accuracy Dashboard</a><a href="index.php?page=cloud">Cloud Cover</a><a class="current" href="index.php?page=setup">Setup &amp; Tests</a></nav>
+<nav class="suite-nav" aria-label="WXSIM forecast pages"><a href="index.php?page=stage1">7-Day Comparison</a><a href="index.php?page=detailed">Detailed Comparison</a><a href="index.php?page=stage2">Accuracy Dashboard</a><a href="index.php?page=cloud">Cloud Cover</a><a class="current" href="index.php?page=setup">Setup &amp; Tests</a><a href="index.php?page=setup&amp;logout=1">Log out</a></nav>
 <?php foreach($messages as $m):?><div class="message ok"><?=h($m)?></div><?php endforeach;?><?php foreach($errors as $m):?><div class="message bad"><?=h($m)?></div><?php endforeach;?>
 <div class="summary"><div class="box"><div class="k">Configuration / server</div><div class="v"><?=badge($localReady,'READY','NOT READY')?></div></div><div class="box"><div class="k">WXSIM latest.csv</div><div class="v"><?=$runWx?badge($wxReady,'READY','FAILED'):'<span class="badge wait">NOT TESTED</span>'?></div></div><div class="box"><div class="k">Weather Underground</div><div class="v"><?=$runWu?badge($wuReady,'READY','FAILED'):'<span class="badge wait">NOT TESTED</span>'?></div></div></div>
 <div class="panel"><h2>Configuration</h2>
 <p class="small">Complete all fields below, then press <strong>Save Settings</strong>. Internal server paths are created automatically and are shown separately below.</p>
-<form method="post" autocomplete="off"><input type="hidden" name="action" value="save_settings"><div class="formgrid">
+<form method="post" autocomplete="off"><?=wxfa_admin_token_field()?><input type="hidden" name="action" value="save_settings"><div class="formgrid">
 <div class="formrow"><div class="formlabel"><strong>SITE_NAME — Station / site name</strong><div class="help">Name displayed by the program, for example: My Weather Station.</div></div><div class="formfield"><input type="text" name="SITE_NAME" value="<?=h($settings['SITE_NAME'])?>" placeholder="Enter station or site name" required></div></div>
 <div class="formrow"><div class="formlabel"><strong>SITE_LOCATION — Station location</strong><div class="help">Plain-English location, for example: Denver, Colorado, USA.</div></div><div class="formfield"><input type="text" name="SITE_LOCATION" value="<?=h($settings['SITE_LOCATION'])?>" placeholder="Enter station location" required></div></div>
 <div class="formrow"><div class="formlabel"><strong>STATION_TIMEZONE — Station time zone</strong><div class="help">Select the IANA time zone for the weather station. These standard zones automatically apply local daylight-saving rules where applicable. <a href="https://www.iana.org/time-zones" target="_blank" rel="noopener">IANA time-zone information</a>.</div></div><div class="formfield"><select name="STATION_TIMEZONE" required><option value="">Please select your station time zone…</option><?php foreach(timezone_groups() as $region=>$zones):?><optgroup label="<?=h($region)?>"><?php foreach($zones as $tz):?><option value="<?=h($tz)?>"<?=$settings['STATION_TIMEZONE']===$tz?' selected':''?>><?=h($tz)?></option><?php endforeach;?></optgroup><?php endforeach;?></select></div></div>
@@ -4345,13 +4451,22 @@ $localReady=$phpOK&&$dataOK&&$weeksOK&&$logsOK&&$settingsOK&&$tzOK&&$wxuOK&&$dis
         ? ('EXISTS; '.number_format((int)@filesize(SETTINGS_FILE)).' bytes; '.(is_readable(SETTINGS_FILE)?'readable':'NOT readable').'; '.(is_writable(SETTINGS_FILE)?'writable':'NOT writable'))
         : 'DOES NOT EXIST — press Save Settings')
 );row('Station name',trim((string)$settings['SITE_NAME'])!=='',h($settings['SITE_NAME']));row('Station location',trim((string)$settings['SITE_LOCATION'])!=='',h($settings['SITE_LOCATION']));row('Station timezone',$tzOK,h($settings['STATION_TIMEZONE']).($tzOK?' — valid':' — invalid'));row('WXSIM source configured',$wxCfg,$wxCfg?'<code>'.h($settings['WXSIM_LATEST_CSV']).'</code>':'Not configured');row('WXSIM source units',$wxuOK,h($settings['WXSIM_OUTPUT_UNITS']));row('Forecast start day',$dayOK,h($settings['FORECAST_START_DAY']));row('WU station ID',$wuId,$wuId?h($settings['WU_STATION_ID']):'Not configured');row('WU API key',$wuKey,$wuKey?'Configured — hidden for security':'Not configured');row('Display units',$dispOK,h($settings['DISPLAY_UNITS']));?></table></div>
+<div class="panel"><h2>Administrator password</h2>
+<p class="small">Use this section to change the password that protects Setup &amp; Tests. The password is not stored in the scripts.</p>
+<?php if($passwordMessage!==''):?><div class="msg ok"><?=h($passwordMessage)?></div><?php endif;?>
+<?php if($passwordError!==''):?><div class="msg bad"><?=h($passwordError)?></div><?php endif;?>
+<form method="post" autocomplete="off"><?=wxfa_admin_token_field()?><input type="hidden" name="action" value="change_admin_password"><div class="formgrid">
+<div class="formrow"><div class="formlabel"><strong>Current administrator password</strong></div><div class="formfield"><input type="password" name="current_admin_password" autocomplete="current-password" required></div></div>
+<div class="formrow"><div class="formlabel"><strong>New administrator password</strong><div class="help">Minimum 10 characters.</div></div><div class="formfield"><input type="password" name="new_admin_password" minlength="10" autocomplete="new-password" required></div></div>
+<div class="formrow"><div class="formlabel"><strong>Confirm new password</strong></div><div class="formfield"><input type="password" name="confirm_admin_password" minlength="10" autocomplete="new-password" required></div></div>
+</div><div class="buttons"><button type="submit">Change Administrator Password</button></div></form></div>
 <div class="panel"><h2>Run now</h2>
 <p class="small"><strong>Run / Initialise Now</strong> creates the first frozen WXSIM forecast immediately, even if today is not the configured recurring start day.</p>
-<form method="get" action="initialise.php"><div class="buttons"><button type="submit">Run / Initialise Now</button></div></form>
+<form method="post" action="initialise.php"><?=wxfa_admin_token_field()?><div class="buttons"><button type="submit">Run / Initialise Now</button></div></form>
 <p class="small"><strong>Update Now</strong> runs the existing completed-day Weather Underground actuals updater. Stage 2 continues on its normal CRON schedule.</p>
-<form method="get" action="update_actuals.php"><div class="buttons"><button class="test" type="submit">Update Now</button></div></form>
+<form method="post" action="update_actuals.php"><?=wxfa_admin_token_field()?><div class="buttons"><button class="test" type="submit">Update Now</button></div></form>
 </div>
-<div class="panel"><h2>Connection tests</h2><form method="post"><div class="buttons"><button class="test" name="test_wxsim" value="1">Test WXSIM Connection</button><button class="test" name="test_wu" value="1">Test Weather Underground</button><button class="secondary" name="test_all" value="1">Run Both Tests</button></div></form><p class="small">Tests are read-only. They do not create archives or alter weather records.</p></div>
+<div class="panel"><h2>Connection tests</h2><form method="post"><?=wxfa_admin_token_field()?><div class="buttons"><button class="test" name="test_wxsim" value="1">Test WXSIM Connection</button><button class="test" name="test_wu" value="1">Test Weather Underground</button><button class="secondary" name="test_all" value="1">Run Both Tests</button></div></form><p class="small">Tests are read-only. They do not create archives or alter weather records.</p></div>
 <?php if($runWx):?><div class="panel"><h2>Detailed WXSIM latest.csv test</h2><table><?php if(!$wxCfg)row('Configured source',false,'No source configured');else{row('Configured source',true,'<code>'.h($settings['WXSIM_LATEST_CSV']).'</code>');if($wx){row('Source type',true,h($wx['type']));row('Retrieval method',$wx['method']!=='',h($wx['method']));if($wx['status']!==null)row('HTTP status',$wx['status']>=200&&$wx['status']<300,h($wx['status']));row('Source accessible',$wx['ok'],$wx['ok']?'Source read successfully':h($wx['error']));row('File received',$wx['bytes']>0,number_format($wx['bytes']).' bytes');if($wx['ctype']!=='')row('Content type',true,h($wx['ctype']));if($csv){row('CSV recognised',$csv['ok'],$csv['ok']?'Header and data rows parsed successfully':h($csv['error']));row('CSV columns',$csv['cols']>1,h($csv['cols']));row('CSV data rows',$csv['rows']>0,h($csv['rows']));row('Date column',$csv['date']!=='',$csv['date']!==''?h($csv['date']):'No Date / Forecast Date column or Year + Month + Day columns detected');row('Time column',$csv['time']!=='',$csv['time']!==''?h($csv['time']):'No Time / Forecast Time / Hour column detected');}}}?></table><?php if($csv&&$csv['headers']):?><h3>CSV column headings returned</h3><pre><?=h(implode(' | ',$csv['headers']))?></pre><?php endif;?><?php if($csv&&$csv['times']):?><h3>First detected forecast times</h3><pre><?=h(implode(', ',$csv['times']))?></pre><?php endif;?><?php if($csv&&$csv['first']):?><h3>First CSV data row</h3><pre><?=h(implode(' | ',$csv['first']))?></pre><?php endif;?></div><?php endif;?>
 <?php if($runWu):?><div class="panel"><h2>Detailed Weather Underground test</h2><table><?php row('Station ID',$wuId,$wuId?h($settings['WU_STATION_ID']):'Not configured');row('API key',$wuKey,$wuKey?'Configured — hidden for security':'Not configured');if($wu){row('Request endpoint',true,'<code>https://api.weather.com/v2/pws/observations/current</code> — API key hidden');row('Retrieval method',$wu['method']!=='',h($wu['method']));row('API response',$wu['received'],$wu['received']?'Response received':h($wu['error']));row('HTTP status',$wu['status']===200,$wu['status']>0?h($wu['status']):'Unknown');row('JSON response',$wu['json'],$wu['json']?'Valid JSON received':'Invalid JSON');row('Current observation',$wu['ok'],$wu['ok']?'Observation retrieved successfully':h($wu['error']));}?></table>
 <?php if($wu&&$wu['ok']&&is_array($wu['data'])):$obs=$wu['data']['observations'][0]??[];$m=is_array($obs['metric']??null)?$obs['metric']:[];$items=[['Station ID',$obs['stationID']??null,''],['Observation time UTC',$obs['obsTimeUtc']??null,''],['Observation time local',$obs['obsTimeLocal']??null,''],['Neighbourhood',$obs['neighborhood']??null,''],['Temperature',$m['temp']??null,' °C'],['Dew point',$m['dewpt']??null,' °C'],['Humidity',$obs['humidity']??null,' %'],['Wind speed',$m['windSpeed']??null,' km/h'],['Wind gust',$m['windGust']??null,' km/h'],['Wind direction',$obs['winddir']??null,' °'],['Sea-level pressure',$m['pressure']??null,' hPa'],['Precipitation rate',$m['precipRate']??null,' mm/h'],['Daily precipitation total',$m['precipTotal']??null,' mm'],['Solar radiation',$obs['solarRadiation']??null,' W/m²'],['UV index',$obs['uv']??null,''],['Elevation',$m['elev']??null,' m']];?><h3>Current observation fields</h3><table><?php foreach($items as[$n,$v,$u]){ $p=$v!==null&&$v!=='';row($n,$p,$p?h((string)$v.$u):'Not supplied by this observation'); }?></table><h3>Top-level fields returned</h3><pre><?=h(implode(', ',array_keys($obs)))?></pre><h3>Metric fields returned</h3><pre><?=h(implode(', ',array_keys($m)))?></pre><?php elseif($wu&&$wu['excerpt']!==''):?><h3>API error response</h3><pre><?=h($wu['excerpt'])?></pre><?php endif;?></div><?php endif;?>
