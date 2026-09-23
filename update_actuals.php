@@ -21,6 +21,9 @@ error_reporting(E_ALL);
 ini_set('display_errors', '1');
 require __DIR__ . '/config.php';
 
+/* Browser manual update requires the authenticated Setup session. CLI/CRON is unaffected. */
+wxfa_require_admin_browser();
+
 function out($s = '') { echo $s, PHP_EOL; }
 function cli_mode() { return PHP_SAPI === 'cli'; }
 function esc($v) { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
