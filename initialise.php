@@ -54,9 +54,9 @@ if (!defined('WXSIM_LATEST_CSV') || trim((string)WXSIM_LATEST_CSV) === '') {
 
 define('CSV_FORECAST_DAYS', 7);
 
-$isCli = false;
+$isCli = wxfa_is_command_line();
 $testMode = false;
-header('Content-Type: text/html; charset=UTF-8');
+if (!$isCli) header('Content-Type: text/html; charset=UTF-8');
 
 function out_line($text, $class = '') {
     global $isCli;
