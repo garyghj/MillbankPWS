@@ -74,6 +74,19 @@ if (!@date_default_timezone_set((string)STATION_TIMEZONE)) {
    forms. The password itself is never stored in the scripts. CLI/CRON jobs
    bypass browser authentication exactly as before.
    ------------------------------------------------------------------------- */
+function wxfa_is_command_line(): bool
+{
+    /*
+       Normal PHP CLI reports PHP_SAPI === 'cli'.  Some hosting control panels
+       invoke scheduled PHP through a wrapper whose SAPI is not reported as
+       'cli'.  A genuine command-line invocation has no HTTP request method and
+       does have argv, so accept either form.  A browser request can therefore
+       never gain administrator access merely by omitting a token.
+    */
+    if (PHP_SAPI === 'cli' || PHP_SAPI === 'phpdbg') return true;
+    return !isset($_SERVER['REQUEST_METHOD']) && isset($_SERVER['argv']) && is_array($_SERVER['argv']);
+}
+
 function wxfa_admin_hash(): string
 {
     global $WXFA_SETTINGS;
@@ -100,7 +113,7 @@ function wxfa_admin_token_field(): string
 
 function wxfa_admin_authenticated(): bool
 {
-    if (PHP_SAPI === 'cli') return true;
+    if (wxfa_is_command_line()) return true;
     if (!empty($GLOBALS['WXFA_ADMIN_AUTHENTICATED'])) return true;
     $expected = wxfa_admin_token();
     $supplied = (string)($_POST['WXFA_ADMIN_TOKEN'] ?? '');
@@ -109,7 +122,7 @@ function wxfa_admin_authenticated(): bool
 
 function wxfa_set_admin_authenticated(bool $authenticated): void
 {
-    if (PHP_SAPI === 'cli') return;
+    if (wxfa_is_command_line()) return;
     $GLOBALS['WXFA_ADMIN_AUTHENTICATED'] = $authenticated;
 }
 
@@ -120,13 +133,13 @@ function wxfa_start_admin_session(): void
 
 function wxfa_admin_logout(): void
 {
-    if (PHP_SAPI === 'cli') return;
+    if (wxfa_is_command_line()) return;
     $GLOBALS['WXFA_ADMIN_AUTHENTICATED'] = false;
 }
 
 function wxfa_require_admin_browser(): void
 {
-    if (PHP_SAPI === 'cli') return;
+    if (wxfa_is_command_line()) return;
     if (!wxfa_admin_password_configured() || !wxfa_admin_authenticated()) {
         http_response_code(403);
         header('Content-Type: text/html; charset=UTF-8');
