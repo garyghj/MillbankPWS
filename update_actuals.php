@@ -25,7 +25,7 @@ require __DIR__ . '/config.php';
 wxfa_require_admin_browser();
 
 function out($s = '') { echo $s, PHP_EOL; }
-function cli_mode() { return PHP_SAPI === 'cli'; }
+function cli_mode() { return wxfa_is_command_line(); }
 function esc($v) { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
 
 function read_json($path) {
