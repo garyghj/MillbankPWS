@@ -231,6 +231,24 @@ function s2_wind_kmh(?float $value, string $unit): ?float
     return $value;
 }
 
+function s2_wxsim_temp_c(?float $value): ?float
+{
+    if ($value === null) return null;
+    return defined('WXSIM_OUTPUT_UNITS')
+        && strtolower(trim((string)WXSIM_OUTPUT_UNITS)) === 'imperial'
+        ? (($value - 32.0) * 5.0 / 9.0)
+        : $value;
+}
+
+function s2_wxsim_precip_mm(?float $value): ?float
+{
+    if ($value === null) return null;
+    return defined('WXSIM_OUTPUT_UNITS')
+        && strtolower(trim((string)WXSIM_OUTPUT_UNITS)) === 'imperial'
+        ? ($value * 25.4)
+        : $value;
+}
+
 function s2_wet_bulb_stull(?float $tempC, ?float $rh): ?float
 {
     if ($tempC === null || $rh === null || $rh < 0 || $rh > 100) {
@@ -579,8 +597,8 @@ try {
     }
 
     if ($previousForecastRow !== null) {
-        $rainNow = s2_number($forecastRow['Tot.Prcp'] ?? null);
-        $rainPrev = s2_number($previousForecastRow['Tot.Prcp'] ?? null);
+        $rainNow = s2_wxsim_precip_mm(s2_number($forecastRow['Tot.Prcp'] ?? null));
+        $rainPrev = s2_wxsim_precip_mm(s2_number($previousForecastRow['Tot.Prcp'] ?? null));
 
         if ($rainNow !== null && $rainPrev !== null) {
             $delta = $rainNow - $rainPrev;
@@ -597,7 +615,7 @@ try {
 
     $windUnit = s2_unit_for_header($headers, $units, 'Wind Spd.');
 
-    $forecastTemp = s2_number($forecastRow['Temperature'] ?? null);
+    $forecastTemp = s2_wxsim_temp_c(s2_number($forecastRow['Temperature'] ?? null));
     $actualTemp   = s2_number($metric['temp'] ?? null);
 
     $forecastRh = s2_number($forecastRow['Rel.Hum.'] ?? null);
@@ -688,13 +706,13 @@ try {
         'dewpoint' => [
             'label' => 'Dew point',
             'unit'  => '°C',
-            'f'     => s2_number($forecastRow['Dew Pt.'] ?? null),
+            'f'     => s2_wxsim_temp_c(s2_number($forecastRow['Dew Pt.'] ?? null)),
             'a'     => s2_number($metric['dewpt'] ?? null)
         ],
         'wetbulb' => [
             'label' => 'Wet bulb',
             'unit'  => '°C',
-            'f'     => s2_number($forecastRow['Wet Bulb'] ?? null),
+            'f'     => s2_wxsim_temp_c(s2_number($forecastRow['Wet Bulb'] ?? null)),
             'a'     => s2_wet_bulb_stull($actualTemp, $actualRh)
         ],
         'pressure' => [
