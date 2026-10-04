@@ -273,19 +273,33 @@ foreach ($required as $name) {
     $idx[$name] = $pos;
 }
 
-$expectedUnits = array(
-    'Temperature'=>'deg C','Hi Temp'=>'deg C','Low Temp'=>'deg C',
-    'Tot.Prcp'=>'mm','Solar Rad'=>'W/m^2'
-);
-foreach ($expectedUnits as $name=>$expected) {
-    $actualUnit = isset($units[$idx[$name]]) ? trim($units[$idx[$name]]) : '';
-    if ($actualUnit !== $expected) {
-        fclose($csvHandle);
-        out_line('ERROR: Unexpected unit for ' . $name . ': ' . $actualUnit . '. Expected ' . $expected . '.', 'bad');
-        if (!$isCli) echo '</div></div></body></html>';
-        exit(1);
-    }
+/*
+ WXSIM source units and dashboard display units are deliberately separate.
+ All forecast archives are normalised here to deg C and mm.
+*/
+$wxsimSourceUnits = defined('WXSIM_OUTPUT_UNITS')
+    ? strtolower(trim((string)WXSIM_OUTPUT_UNITS))
+    : 'metric';
+if (!in_array($wxsimSourceUnits, array('metric','imperial'), true)) {
+    fclose($csvHandle);
+    out_line('ERROR: WXSIM_OUTPUT_UNITS must be metric or imperial.', 'bad');
+    if (!$isCli) echo '</div></div></body></html>';
+    exit(1);
 }
+function wxsim_temp_to_c($v) {
+    global $wxsimSourceUnits;
+    if ($v===null) return null;
+    return $wxsimSourceUnits==='imperial' ? (($v-32.0)*5.0/9.0) : $v;
+}
+function wxsim_precip_to_mm($v) {
+    global $wxsimSourceUnits;
+    if ($v===null) return null;
+    return $wxsimSourceUnits==='imperial' ? ($v*25.4) : $v;
+}
+$temperatureUnit = trim($units[$idx['Temperature']] ?? '');
+$precipUnit = trim($units[$idx['Tot.Prcp']] ?? '');
+$solarUnit = trim($units[$idx['Solar Rad']] ?? '');
+out_line('WXSIM configured source units: ' . $wxsimSourceUnits . ' (temperature and rainfall normalised internally to deg C and mm)');
 $windUnit=trim($units[$idx['Wind Spd.']]);
 $gustUnit=trim($units[$idx['10 min Gust']]);
 function wind_to_kmh($v,$u) {
@@ -316,11 +330,11 @@ while (($row = fgetcsv($csvHandle, 0, ',', '"', '\\')) !== false) {
     $records[] = array(
         'date'=>$date,
         'time'=>numeric_or_null(isset($row[$idx['Time']])?$row[$idx['Time']]:''),
-        'temp'=>numeric_or_null(isset($row[$idx['Temperature']])?$row[$idx['Temperature']]:''),
-        'hi'=>numeric_or_null(isset($row[$idx['Hi Temp']])?$row[$idx['Hi Temp']]:''),
-        'lo'=>numeric_or_null(isset($row[$idx['Low Temp']])?$row[$idx['Low Temp']]:''),
+        'temp'=>wxsim_temp_to_c(numeric_or_null(isset($row[$idx['Temperature']])?$row[$idx['Temperature']]:'')),
+        'hi'=>wxsim_temp_to_c(numeric_or_null(isset($row[$idx['Hi Temp']])?$row[$idx['Hi Temp']]:'')),
+        'lo'=>wxsim_temp_to_c(numeric_or_null(isset($row[$idx['Low Temp']])?$row[$idx['Low Temp']]:'')),
         'windKnots'=>numeric_or_null(isset($row[$idx['Wind Spd.']])?$row[$idx['Wind Spd.']]:''),
-        'precipCum'=>numeric_or_null(isset($row[$idx['Tot.Prcp']])?$row[$idx['Tot.Prcp']]:''),
+        'precipCum'=>wxsim_precip_to_mm(numeric_or_null(isset($row[$idx['Tot.Prcp']])?$row[$idx['Tot.Prcp']]:'')),
         'solar'=>numeric_or_null(isset($row[$idx['Solar Rad']])?$row[$idx['Solar Rad']]:''),
         'gust1'=>numeric_or_null(isset($row[$idx['1 min Gust']])?$row[$idx['1 min Gust']]:''),
         'gust10'=>numeric_or_null(isset($row[$idx['10 min Gust']])?$row[$idx['10 min Gust']]:''),
@@ -357,8 +371,14 @@ $dates = array();
 for ($i=0; $i<CSV_FORECAST_DAYS; $i++) {
     $date = date('Y-m-d', strtotime($todayDate . ' +' . $i . ' day'));
     if (!isset($grouped[$date])) {
+        $availableDates = array_keys($grouped);
+        sort($availableDates);
+        $availableFirst = count($availableDates) ? $availableDates[0] : 'none';
+        $availableLast = count($availableDates) ? $availableDates[count($availableDates)-1] : 'none';
         out_line('ERROR: latest.csv does not contain all seven required forecast dates.', 'bad');
         out_line('Missing forecast date: ' . $date, 'bad');
+        out_line('Forecast dates available in latest.csv: ' . count($availableDates) . ' (' . $availableFirst . ' to ' . $availableLast . ').', 'bad');
+        out_line('The 7-Day Comparison requires seven consecutive calendar dates. Increase the WXSIM forecast/output horizon so latest.csv includes the missing seventh date, then run Initialise again.', 'bad');
         if (!$isCli) echo '</div></div></body></html>';
         exit(1);
     }
