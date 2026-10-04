@@ -867,6 +867,23 @@ body {
     font-weight: 600;
 }
 
+.header .clocks {
+    margin-top: 10px;
+    display: flex;
+    gap: 22px;
+    flex-wrap: wrap;
+    font-size: 14px;
+    opacity: .95;
+}
+
+.header .clock-label {
+    font-weight: 700;
+}
+
+.header .clock-value {
+    font-variant-numeric: tabular-nums;
+}
+
 .toolbar {
     margin-top: 14px;
     background: var(--panel-bg);
@@ -1279,6 +1296,11 @@ th:first-child {
             </div>
 
         <?php endif; ?>
+
+        <div class="clocks" aria-label="Station and UTC clocks">
+            <div><span class="clock-label">Station Time:</span> <span id="stationClock" class="clock-value">--</span></div>
+            <div><span class="clock-label">UTC:</span> <span id="utcClock" class="clock-value">--</span></div>
+        </div>
 
     </div>
 
@@ -2308,6 +2330,41 @@ async function exportPDF()
 
 </script>
 
+<script>
+(function () {
+    const stationZone = <?php echo json_encode((string)STATION_TIMEZONE); ?>;
+    const stationEl = document.getElementById('stationClock');
+    const utcEl = document.getElementById('utcClock');
+    if (!stationEl || !utcEl) return;
+
+    const baseOptions = {
+        year: 'numeric', month: 'short', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false
+    };
+
+    function formatter(timeZone) {
+        try {
+            return new Intl.DateTimeFormat('en-GB', Object.assign({}, baseOptions, {timeZone}));
+        } catch (e) {
+            return null;
+        }
+    }
+
+    const stationFormatter = formatter(stationZone);
+    const utcFormatter = formatter('UTC');
+
+    function tick() {
+        const now = new Date();
+        stationEl.textContent = stationFormatter ? stationFormatter.format(now) : 'Unavailable';
+        utcEl.textContent = utcFormatter ? utcFormatter.format(now) : 'Unavailable';
+    }
+
+    tick();
+    window.setInterval(tick, 1000);
+})();
+</script>
+
 <?php endif; ?>
 
 </body>
@@ -2463,8 +2520,28 @@ $metrics=[
  'rain_mm'=>['Rainfall','mm','rain'],'wind_kmh'=>['Max wind speed','km/h','wind'],'gust_kmh'=>['Max 10-min gust / WU gust','km/h','wind'],
  'wind_dir_deg'=>['Mean wind direction','°','wind'],'solar_wm2'=>['Max solar radiation','W/m²','rad'],'uv_index'=>['Max UV index','','rad'],
  'wind_chill_c'=>['Min wind chill','°C','temp'],'heat_index_c'=>['Max heat index','°C','temp']];
+
+/* Detailed Comparison stores/compares common internal metric units. Convert only
+   for presentation so forecast, actual and errors always use the selected
+   DISPLAY_UNITS without changing the stored data. */
+function detailed_display($key,$value,$unit,$isError=false){
+ $mode=defined('DISPLAY_UNITS')?strtolower(trim((string)DISPLAY_UNITS)):'metric';
+ $targetUnit=$unit;
+ if(in_array($key,['max_temp_c','min_temp_c','dewpoint_c','wetbulb_c','wind_chill_c','heat_index_c'],true)&&$unit==='°C'&&$mode==='imperial')$targetUnit='°F';
+ elseif($key==='rain_mm'&&$unit==='mm'&&$mode==='imperial')$targetUnit='in';
+ elseif(in_array($key,['wind_kmh','gust_kmh'],true)&&$unit==='km/h'&&in_array($mode,['uk','imperial'],true))$targetUnit='mph';
+ /* Return the selected display unit even when this particular value is null.
+    Otherwise a missing Actual/Error value can overwrite the unit selected for
+    a valid Forecast value and leave Fahrenheit numbers labelled as Celsius. */
+ if($value===null)return [null,$targetUnit];
+ if($targetUnit==='°F')return [$isError?$value*9/5:$value*9/5+32,$targetUnit];
+ if($targetUnit==='in')return [$value/25.4,$targetUnit];
+ if($targetUnit==='mph')return [$value/1.609344,$targetUnit];
+ return [$value,$targetUnit];
+}
+function detailed_decimals($unit){if($unit==='in')return 2;return in_array($unit,['%','°'],true)?0:1;}
+function fv($v,$u){if($v===null)return '—';return number_format($v,detailed_decimals($u)).($u?' '.$u:'');}
 $dates=[];$d=new DateTime(DT_START,new DateTimeZone(STATION_TIMEZONE));$z=new DateTime(DT_END,new DateTimeZone(STATION_TIMEZONE));while($d<=$z){$dates[]=$d->format('Y-m-d');$d->modify('+1 day');}
-function fv($v,$u){if($v===null)return '—';$dp=in_array($u,['%','°'],true)?0:1;return number_format($v,$dp).($u?' '.$u:'');}
 ?>
 <!doctype html>
 <html lang="en">
@@ -2836,22 +2913,28 @@ html[data-theme="dark"] .error-cell{color:#e7edf3}
                         $a=$actual[$date][$key]??null;
                         $er=($f===null||$a===null)?null:($key==='wind_dir_deg'?angerr($f,$a):$f-$a);
                         if($er!==null)$ae[]=abs($er);
+                        [$fd,$displayUnit]=detailed_display($key,$f,$unit,false);
+                        [$ad,$displayUnit]=detailed_display($key,$a,$unit,false);
+                        [$ed,$displayUnit]=detailed_display($key,$er,$unit,true);
                     ?>
                     <td class="<?=$date>=$today?'future':''?>">
-                        <div class="f">F: <?=e(fv($f,$unit))?></div>
-                        <div class="a">A: <?=e(fv($a,$unit))?></div>
+                        <div class="f">F: <?=e(fv($fd,$displayUnit))?></div>
+                        <div class="a">A: <?=e(fv($ad,$displayUnit))?></div>
                         <div class="er">
                             Error:
-                            <?=$er===null
+                            <?=$ed===null
                                 ? '—'
-                                : e(($key==='wind_dir_deg'?'':($er>0?'+':''))
-                                    .number_format($er,in_array($unit,['%','°'],true)?0:1)
-                                    .($unit?' '.$unit:''))
+                                : e(($key==='wind_dir_deg'?'':($ed>0?'+':''))
+                                    .number_format($ed,detailed_decimals($displayUnit))
+                                    .($displayUnit?' '.$displayUnit:''))
                             ?>
                         </div>
                     </td>
-                    <?php endforeach;?>
-                    <td><?=$ae?e(number_format(array_sum($ae)/count($ae),1).' '.$unit):'—'?></td>
+                    <?php endforeach;
+                    $maeInternal=$ae?array_sum($ae)/count($ae):null;
+                    [$maeDisplay,$maeUnit]=detailed_display($key,$maeInternal,$unit,true);
+                    ?>
+                    <td><?=$maeDisplay!==null?e(number_format($maeDisplay,detailed_decimals($maeUnit)).' '.$maeUnit):'—'?></td>
                 </tr>
             <?php endforeach;?>
             </tbody>
@@ -3723,18 +3806,30 @@ header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 header('Expires: 0');
 
-// Retrieve the live WXSIM CSV over HTTPS.
-function fetch_wxsim_csv($url) {
-    $sep = (strpos($url, '?') === false) ? '?' : '&';
-    $ctx = stream_context_create(['http' => [
-        'method' => 'GET', 'timeout' => 15, 'ignore_errors' => true,
-        'header' => "Cache-Control: no-cache\r\nPragma: no-cache\r\n"
-    ]]);
-    $data = @file_get_contents($url . $sep . '_=' . time(), false, $ctx);
+// Retrieve WXSIM latest.csv from either an HTTP/HTTPS URL or a local server path.
+// This deliberately mirrors the source choices offered by Setup & Tests.
+function fetch_wxsim_csv($source) {
+    $source = trim((string)$source);
+    if ($source === '') return false;
+
+    if (preg_match('~^https?://~i', $source)) {
+        $sep = (strpos($source, '?') === false) ? '?' : '&';
+        $ctx = stream_context_create(['http' => [
+            'method' => 'GET', 'timeout' => 15, 'ignore_errors' => true,
+            'header' => "Cache-Control: no-cache\r\nPragma: no-cache\r\n"
+        ]]);
+        $data = @file_get_contents($source . $sep . '_=' . time(), false, $ctx);
+    } else {
+        // A filesystem path must be read exactly as configured. Never append
+        // the cache-busting query string used for HTTP URLs.
+        if (!is_file($source) || !is_readable($source)) return false;
+        $data = @file_get_contents($source);
+    }
+
     return ($data === false || trim($data) === '') ? false : $data;
 }
 
-// Status endpoint: compare a content hash because filemtime() is not valid for a remote URL.
+// Status endpoint uses a content hash for both remote and local sources.
 if (isset($_GET['wxsim_status'])) {
     header('Content-Type: application/json; charset=utf-8');
     $statusCsv = fetch_wxsim_csv($csvFile);
@@ -3828,7 +3923,7 @@ $error = null;
 
 $csvContent = fetch_wxsim_csv($csvFile);
 if ($csvContent === false) {
-    $error = 'Unable to retrieve the live WXSIM CSV file.';
+    $error = 'Unable to read the configured WXSIM CSV file.';
 } else {
     $fh = fopen('php://temp', 'r+');
     fwrite($fh, $csvContent);
@@ -4333,7 +4428,8 @@ function fetch_source(string $source): array {
 }
 
 function csv_diag(string $text): array {
-    $o=['ok'=>false,'rows'=>0,'cols'=>0,'headers'=>[],'first'=>[],'date'=>'','time'=>'','times'=>[],'error'=>''];
+    $o=['ok'=>false,'rows'=>0,'cols'=>0,'headers'=>[],'first'=>[],'date'=>'','time'=>'','times'=>[],
+        'forecast_dates'=>[],'forecast_days'=>0,'first_date'=>'','last_date'=>'','seven_day_ready'=>false,'error'=>''];
     $text=preg_replace('/^\xEF\xBB\xBF/','',$text); $lines=preg_split('/\r\n|\n|\r/',trim($text));
     if(!$lines||count($lines)<2){ $o['error']='No CSV header plus data rows found.'; return $o; }
     $hdr=array_map('trim',str_getcsv((string)$lines[0], ',', '"', '\\')); $o['headers']=$hdr; $o['cols']=count($hdr); $di=$ti=null; $yi=$mi=$dai=null;
@@ -4349,7 +4445,39 @@ function csv_diag(string $text): array {
     $rows=[]; for($i=1;$i<count($lines);$i++){ if(trim((string)$lines[$i])==='') continue; $x=str_getcsv((string)$lines[$i], ',', '"', '\\'); if(count($x)>1) $rows[]=array_map('trim',$x); }
     $o['rows']=count($rows); $o['first']=$rows[0]??[];
     if($ti!==null){ $times=[]; foreach($rows as $x){ if(!isset($x[$ti])) continue; $v=trim((string)$x[$ti]); if($v==='') continue; if(is_numeric($v)){ $f=(float)$v;$hh=(int)floor($f);$mm=(int)round(($f-$hh)*60);if($mm===60){$hh++;$mm=0;}$v=sprintf('%02d:%02d',$hh%24,$mm);} $times[]=$v; if(count($times)>=12) break; } $o['times']=array_values(array_unique($times)); }
-    $o['ok']=$o['rows']>0&&$o['cols']>1; if(!$o['ok']) $o['error']='No usable CSV data rows found.'; return $o;
+
+    /* A usable connection is not enough for the 7-Day Comparison: the CSV
+       must actually contain seven consecutive calendar dates. */
+    $forecastDates=[];
+    foreach($rows as $x){
+        $date='';
+        if($di!==null && isset($x[$di])){
+            $raw=trim((string)$x[$di]);
+            if($raw!==''){
+                $ts=strtotime($raw);
+                if($ts!==false) $date=date('Y-m-d',$ts);
+            }
+        } elseif($yi!==null && $mi!==null && $dai!==null && isset($x[$yi],$x[$mi],$x[$dai])){
+            $y=trim((string)$x[$yi]);$m=trim((string)$x[$mi]);$d=trim((string)$x[$dai]);
+            if(ctype_digit($y)&&ctype_digit($m)&&ctype_digit($d)&&checkdate((int)$m,(int)$d,(int)$y))
+                $date=sprintf('%04d-%02d-%02d',(int)$y,(int)$m,(int)$d);
+        }
+        if($date!=='') $forecastDates[$date]=true;
+    }
+    $forecastDates=array_keys($forecastDates); sort($forecastDates);
+    $o['forecast_dates']=$forecastDates; $o['forecast_days']=count($forecastDates);
+    if($forecastDates){ $o['first_date']=$forecastDates[0]; $o['last_date']=$forecastDates[count($forecastDates)-1]; }
+    if(count($forecastDates)>=7){
+        for($start=0;$start<=count($forecastDates)-7;$start++){
+            $base=$forecastDates[$start]; $consecutive=true;
+            for($j=1;$j<7;$j++) if($forecastDates[$start+$j]!==date('Y-m-d',strtotime($base.' +'.$j.' day'))){$consecutive=false;break;}
+            if($consecutive){$o['seven_day_ready']=true;break;}
+        }
+    }
+    $o['ok']=$o['rows']>0&&$o['cols']>1;
+    if(!$o['ok']) $o['error']='No usable CSV data rows found.';
+    elseif(!$o['seven_day_ready']) $o['error']='The CSV is readable, but it does not contain seven consecutive forecast dates required by the 7-Day Comparison.';
+    return $o;
 }
 
 function wu_diag(string $station,string $key): array {
@@ -4420,7 +4548,7 @@ $dataOK=ensure_dir(DATA_DIR)&&is_writable(DATA_DIR);$weeksOK=ensure_dir(WEEKS_DI
 $phpOK=version_compare(PHP_VERSION,'8.0.0','>=');$tzOK=valid_tz((string)$settings['STATION_TIMEZONE']);$wxuOK=in_array((string)$settings['WXSIM_OUTPUT_UNITS'],$wuUnits,true);$dispOK=in_array((string)$settings['DISPLAY_UNITS'],$disp,true);$dayOK=in_array((string)$settings['FORECAST_START_DAY'],$days,true);$wxCfg=trim((string)$settings['WXSIM_LATEST_CSV'])!=='';$wuId=trim((string)$settings['WU_STATION_ID'])!=='';$wuKey=trim((string)$settings['WU_API_KEY'])!=='';
 $wx=$csv=null;if($runWx&&$wxCfg){$wx=fetch_source((string)$settings['WXSIM_LATEST_CSV']);if($wx['ok'])$csv=csv_diag((string)$wx['text']);}
 $wu=null;if($runWu&&$wuId&&$wuKey)$wu=wu_diag((string)$settings['WU_STATION_ID'],(string)$settings['WU_API_KEY']);
-$localReady=$phpOK&&$dataOK&&$weeksOK&&$logsOK&&$settingsOK&&$tzOK&&$wxuOK&&$dispOK&&$dayOK&&$wxCfg&&$wuId&&$wuKey;$wxReady=$wx!==null&&$wx['ok']&&$csv!==null&&$csv['ok'];$wuReady=$wu!==null&&$wu['ok'];
+$localReady=$phpOK&&$dataOK&&$weeksOK&&$logsOK&&$settingsOK&&$tzOK&&$wxuOK&&$dispOK&&$dayOK&&$wxCfg&&$wuId&&$wuKey;$wxReady=$wx!==null&&$wx['ok']&&$csv!==null&&$csv['ok']&&$csv['seven_day_ready'];$wuReady=$wu!==null&&$wu['ok'];
 ?>
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Setup & Tests</title>
 <style>
@@ -4466,8 +4594,12 @@ $localReady=$phpOK&&$dataOK&&$weeksOK&&$logsOK&&$settingsOK&&$tzOK&&$wxuOK&&$dis
 <p class="small"><strong>Update Now</strong> runs the existing completed-day Weather Underground actuals updater. Stage 2 continues on its normal CRON schedule.</p>
 <form method="post" action="update_actuals.php"><?=wxfa_admin_token_field()?><div class="buttons"><button class="test" type="submit">Update Now</button></div></form>
 </div>
+<div class="panel"><h2>WXSIM 7-Day forecast requirement</h2>
+<p><strong>Forecast Compare requires WXSIM to be configured to generate at least seven consecutive calendar days of forecast data.</strong></p>
+<p class="small">The WXSIM connection test checks the dates actually present in <code>latest.csv</code>. If fewer than seven consecutive forecast dates are available, the test will FAIL and Initialise will not create a frozen 7-Day Comparison archive. Increase the WXSIM forecast/output horizon to seven days or more, allow WXSIM to regenerate <code>latest.csv</code>, and run the test again.</p>
+</div>
 <div class="panel"><h2>Connection tests</h2><form method="post"><?=wxfa_admin_token_field()?><div class="buttons"><button class="test" name="test_wxsim" value="1">Test WXSIM Connection</button><button class="test" name="test_wu" value="1">Test Weather Underground</button><button class="secondary" name="test_all" value="1">Run Both Tests</button></div></form><p class="small">Tests are read-only. They do not create archives or alter weather records.</p></div>
-<?php if($runWx):?><div class="panel"><h2>Detailed WXSIM latest.csv test</h2><table><?php if(!$wxCfg)row('Configured source',false,'No source configured');else{row('Configured source',true,'<code>'.h($settings['WXSIM_LATEST_CSV']).'</code>');if($wx){row('Source type',true,h($wx['type']));row('Retrieval method',$wx['method']!=='',h($wx['method']));if($wx['status']!==null)row('HTTP status',$wx['status']>=200&&$wx['status']<300,h($wx['status']));row('Source accessible',$wx['ok'],$wx['ok']?'Source read successfully':h($wx['error']));row('File received',$wx['bytes']>0,number_format($wx['bytes']).' bytes');if($wx['ctype']!=='')row('Content type',true,h($wx['ctype']));if($csv){row('CSV recognised',$csv['ok'],$csv['ok']?'Header and data rows parsed successfully':h($csv['error']));row('CSV columns',$csv['cols']>1,h($csv['cols']));row('CSV data rows',$csv['rows']>0,h($csv['rows']));row('Date column',$csv['date']!=='',$csv['date']!==''?h($csv['date']):'No Date / Forecast Date column or Year + Month + Day columns detected');row('Time column',$csv['time']!=='',$csv['time']!==''?h($csv['time']):'No Time / Forecast Time / Hour column detected');}}}?></table><?php if($csv&&$csv['headers']):?><h3>CSV column headings returned</h3><pre><?=h(implode(' | ',$csv['headers']))?></pre><?php endif;?><?php if($csv&&$csv['times']):?><h3>First detected forecast times</h3><pre><?=h(implode(', ',$csv['times']))?></pre><?php endif;?><?php if($csv&&$csv['first']):?><h3>First CSV data row</h3><pre><?=h(implode(' | ',$csv['first']))?></pre><?php endif;?></div><?php endif;?>
+<?php if($runWx):?><div class="panel"><h2>Detailed WXSIM latest.csv test</h2><table><?php if(!$wxCfg)row('Configured source',false,'No source configured');else{row('Configured source',true,'<code>'.h($settings['WXSIM_LATEST_CSV']).'</code>');if($wx){row('Source type',true,h($wx['type']));row('Retrieval method',$wx['method']!=='',h($wx['method']));if($wx['status']!==null)row('HTTP status',$wx['status']>=200&&$wx['status']<300,h($wx['status']));row('Source accessible',$wx['ok'],$wx['ok']?'Source read successfully':h($wx['error']));row('File received',$wx['bytes']>0,number_format($wx['bytes']).' bytes');if($wx['ctype']!=='')row('Content type',true,h($wx['ctype']));if($csv){row('CSV recognised',$csv['ok'],$csv['ok']?'Header and data rows parsed successfully':h($csv['error']));row('CSV columns',$csv['cols']>1,h($csv['cols']));row('CSV data rows',$csv['rows']>0,h($csv['rows']));row('Date column',$csv['date']!=='',$csv['date']!==''?h($csv['date']):'No Date / Forecast Date column or Year + Month + Day columns detected');row('Time column',$csv['time']!=='',$csv['time']!==''?h($csv['time']):'No Time / Forecast Time / Hour column detected');row('7-Day forecast coverage',$csv['seven_day_ready'], $csv['forecast_days']>0 ? h($csv['forecast_days'].' calendar date'.($csv['forecast_days']===1?'':'s').' detected: '.$csv['first_date'].' to '.$csv['last_date'].($csv['seven_day_ready']?' — sufficient for the 7-Day Comparison':' — FAIL: WXSIM must be configured to produce at least 7 consecutive forecast days')) : 'No forecast dates detected');}}}?></table><?php if($csv&&$csv['headers']):?><h3>CSV column headings returned</h3><pre><?=h(implode(' | ',$csv['headers']))?></pre><?php endif;?><?php if($csv&&$csv['times']):?><h3>First detected forecast times</h3><pre><?=h(implode(', ',$csv['times']))?></pre><?php endif;?><?php if($csv&&$csv['first']):?><h3>First CSV data row</h3><pre><?=h(implode(' | ',$csv['first']))?></pre><?php endif;?></div><?php endif;?>
 <?php if($runWu):?><div class="panel"><h2>Detailed Weather Underground test</h2><table><?php row('Station ID',$wuId,$wuId?h($settings['WU_STATION_ID']):'Not configured');row('API key',$wuKey,$wuKey?'Configured — hidden for security':'Not configured');if($wu){row('Request endpoint',true,'<code>https://api.weather.com/v2/pws/observations/current</code> — API key hidden');row('Retrieval method',$wu['method']!=='',h($wu['method']));row('API response',$wu['received'],$wu['received']?'Response received':h($wu['error']));row('HTTP status',$wu['status']===200,$wu['status']>0?h($wu['status']):'Unknown');row('JSON response',$wu['json'],$wu['json']?'Valid JSON received':'Invalid JSON');row('Current observation',$wu['ok'],$wu['ok']?'Observation retrieved successfully':h($wu['error']));}?></table>
 <?php if($wu&&$wu['ok']&&is_array($wu['data'])):$obs=$wu['data']['observations'][0]??[];$m=is_array($obs['metric']??null)?$obs['metric']:[];$items=[['Station ID',$obs['stationID']??null,''],['Observation time UTC',$obs['obsTimeUtc']??null,''],['Observation time local',$obs['obsTimeLocal']??null,''],['Neighbourhood',$obs['neighborhood']??null,''],['Temperature',$m['temp']??null,' °C'],['Dew point',$m['dewpt']??null,' °C'],['Humidity',$obs['humidity']??null,' %'],['Wind speed',$m['windSpeed']??null,' km/h'],['Wind gust',$m['windGust']??null,' km/h'],['Wind direction',$obs['winddir']??null,' °'],['Sea-level pressure',$m['pressure']??null,' hPa'],['Precipitation rate',$m['precipRate']??null,' mm/h'],['Daily precipitation total',$m['precipTotal']??null,' mm'],['Solar radiation',$obs['solarRadiation']??null,' W/m²'],['UV index',$obs['uv']??null,''],['Elevation',$m['elev']??null,' m']];?><h3>Current observation fields</h3><table><?php foreach($items as[$n,$v,$u]){ $p=$v!==null&&$v!=='';row($n,$p,$p?h((string)$v.$u):'Not supplied by this observation'); }?></table><h3>Top-level fields returned</h3><pre><?=h(implode(', ',array_keys($obs)))?></pre><h3>Metric fields returned</h3><pre><?=h(implode(', ',array_keys($m)))?></pre><?php elseif($wu&&$wu['excerpt']!==''):?><h3>API error response</h3><pre><?=h($wu['excerpt'])?></pre><?php endif;?></div><?php endif;?>
 <div class="panel"><h2>Internal paths — automatic</h2><p class="small">These correspond to the internal path constants in the old config and require no user input.</p><table><tr><th>BASE_DIR</th><td colspan="2"><code><?=h(BASE_DIR)?></code></td></tr><tr><th>DATA_DIR</th><td colspan="2"><code><?=h(DATA_DIR)?></code></td></tr><tr><th>WEEKS_DIR</th><td colspan="2"><code><?=h(WEEKS_DIR)?></code></td></tr><tr><th>LOG_DIR</th><td colspan="2"><code><?=h(LOG_DIR)?></code></td></tr><tr><th>SETTINGS_FILE</th><td colspan="2"><code><?=h(SETTINGS_FILE)?></code></td></tr></table></div>
