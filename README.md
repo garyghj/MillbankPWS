@@ -1,89 +1,121 @@
-# WXSIM Forecast vs Weather Underground Actuals
+# WXSIM Forecast Accuracy Dashboard
 
-**Forecast Accuracy Dashboard by MillbankPWS, Munlochy, Scotland**
+**Current Release: v1.0.3**
 
-A PHP-based weather forecast verification system that compares **WXSIM forecasts** with **Weather Underground actual observations**.
+WXSIM Forecast Accuracy Dashboard is a PHP-based system for comparing a frozen **WXSIM seven-day weather forecast** with subsequent observations from a **Weather Underground Personal Weather Station (PWS)**.
 
-The software archives WXSIM forecasts, collects subsequent Weather Underground observations, and presents the results through a set of browser-based comparison and accuracy displays.
+The system preserves the original WXSIM forecast and progressively adds actual observations, allowing forecast performance to be reviewed without subsequently changing the forecast against which the observations are compared.
 
-## Main Features
+Developed by **MillbankPWS, Munlochy, Scotland**.
 
-- **7-Day Forecast vs Actual** — compares the archived WXSIM forecast with the observed weather for the corresponding seven-day period.
-- **Detailed Comparison** — provides a more detailed forecast/observation comparison.
-- **Accuracy Dashboard** — summarises forecast accuracy using the accumulated comparison records.
-- **Cloud Cover** — displays WXSIM forecast cloud cover, including sky-cover percentage and oktas-style presentation.
-- Choice of metric or imperial display units.
-- Configurable station name, location and IANA timezone.
-- Configurable WXSIM source units.
-- Weather Underground observations obtained using the station ID and API key supplied by the user.
-- Automated operation using scheduled jobs after initial configuration.
+## Dashboard Pages
+
+The package provides four main displays:
+
+* **7-Day Comparison** — compares the frozen WXSIM daily forecast with completed Weather Underground daily observations.
+* **Detailed Comparison** — provides a more detailed day-by-day comparison of forecast and actual values.
+* **Accuracy Dashboard** — compares WXSIM forecast values with Weather Underground observations and provides forecast-error information.
+* **Cloud Cover** — displays WXSIM forecast cloud cover using percentage values and meteorological cloud-cover symbols.
+
+A separate **Setup & Tests** facility is provided for configuration and system diagnostics.
 
 ## Requirements
 
-The software is intended primarily for a web server with:
+The system requires:
 
-- PHP 8.0 or later.
-- Access to a WXSIM `latest.csv` forecast file, either by URL or local path.
-- A Weather Underground Personal Weather Station.
-- A Weather Underground API key.
-- The ability to schedule PHP scripts using CRON or an equivalent scheduler.
-- Write permission for the application's data and log directories.
+* **PHP 8.0 or later**
+* WXSIM producing `latest.csv`
+* WXSIM configured to provide **at least seven consecutive calendar forecast dates**
+* A Weather Underground Personal Weather Station
+* A Weather Underground API key
+* CRON, or another suitable scheduler, for automatic updates
+* Appropriate outbound server access to the configured WXSIM CSV source and Weather Underground
+
+## Metric and Imperial Support
+
+Version 1.0.3 supports WXSIM installations using either **Metric or Imperial source/output units**.
+
+WXSIM source units and dashboard display units are configured separately.
+
+Forecast data are normalised internally to common units before comparison with Weather Underground observations. Dashboard presentation can then independently be selected as Metric or Imperial.
+
+This corrects the Imperial WXSIM temperature conversion issue identified in v1.0.2.
+
+## Seven-Day Forecast Requirement
+
+The 7-Day Comparison requires WXSIM `latest.csv` to contain at least **seven consecutive calendar forecast dates**.
+
+Setup & Tests checks the actual date coverage contained in `latest.csv`.
+
+If WXSIM is configured to generate only six forecast days, the test will report a failure and WXSIM should be changed to produce seven days before the comparison is initialised.
 
 ## Installation
 
-The package includes detailed documentation. New users should begin with:
+Detailed installation instructions are supplied with the release package.
 
-**Part 1 - Quick Start / Initial Setup**
+For a new installation:
 
-More detailed configuration, folder and scheduling information is provided in:
+1. Download the latest release package.
+2. Upload the files to a dedicated directory on the web server.
+3. Open the application and complete **Setup & Tests**.
+4. Configure the station timezone, WXSIM source, source units, Weather Underground station information and display preferences.
+5. Run the supplied tests and correct any reported failures.
+6. Initialise the first seven-day forecast.
+7. Configure the required scheduled/CRON jobs.
 
-**Part 2 - Detailed Installation & Configuration Guide**
+Refer to the supplied **Quick Start** and **Detailed Guide** for the complete procedure.
 
-After uploading the PHP files to the server, open the application in a web browser and use the **Setup & Test** page to enter and test the station-specific settings.
+## Upgrading an Existing Installation
 
-Do not place another user's `data/settings.json`, archived forecasts, comparison records or log files into a new installation.
+**Back up the complete existing installation before upgrading.**
 
-## Scheduled Tasks
+Do not delete historical data or forecast archives simply to install a newer version.
 
-Normal operation uses three scheduled PHP scripts:
+In particular, preserve existing runtime data, weekly forecast archives and historical comparison records.
 
-- `worker.php` — captures and freezes the weekly WXSIM forecast.
-- `update_actuals.php` — retrieves the completed day's Weather Underground observations.
-- `stage2_update.php` — creates the detailed comparison records.
+After upgrading, run **Setup & Tests** and confirm that the WXSIM and Weather Underground tests pass before relying on automatic operation.
 
-The exact CRON examples and scheduling instructions are provided in the installation documentation.
+## Rolling Back to an Earlier Version
 
-## Live Example
+Previous published versions remain available through the repository's **Releases** section.
 
-A working installation at Black Isle Weather Centre can be viewed at:
+If a newer release causes a problem:
 
-https://blackisleweather.net/wu_forecast_compare_csv/index.php
+1. Stop or temporarily disable the application's scheduled jobs.
+2. Restore the backup made immediately before upgrading; this is the preferred rollback method.
+3. Alternatively, download the required previous release from GitHub Releases and restore the corresponding application files.
+4. Take care not to overwrite historical data with incompatible or empty files.
+5. Run Setup & Tests before re-enabling automatic operation.
 
-## Project Background
+Maintaining a complete backup before every upgrade provides the safest rollback route.
 
-This project was developed by **MillbankPWS in Munlochy, Scotland** for comparing locally generated WXSIM forecasts with subsequent observations from a personal weather station.
+## What's New in v1.0.3
 
-It is provided for other weather enthusiasts, amateur weather observers, educational users and non-commercial organisations who may find forecast verification useful.
+Version 1.0.3 includes:
 
-The author is not a professional software developer and cannot provide individual technical support for installation, server configuration or modification of the software.
+* Corrected support for **Imperial WXSIM source/output data**.
+* Separation of **WXSIM source units** from **dashboard display units**.
+* Corrected Imperial values and units in Detailed Comparison.
+* Improved handling of temperature-error/MAE conversions.
+* Explicit validation that `latest.csv` contains at least **seven consecutive forecast dates**.
+* Improved diagnostics when WXSIM does not provide sufficient forecast coverage.
+* **Station Time and UTC clocks** on the 7-Day Comparison.
+* Improved WXSIM/Weather Underground matching in Accuracy processing.
+* Improved wind-unit normalisation.
+* Improved rainfall interval handling and safeguards.
+* Continued protection of frozen forecast/comparison records once saved.
+* Improved Setup & Tests diagnostics.
 
-General enquiries may be made through:
+Users running WXSIM with **Imperial output** are particularly encouraged to upgrade from v1.0.2.
 
-https://millbankhouse.co.uk/contactandcredits.php
+## Previous Releases
+
+Earlier releases, including **v1.0.2** and **v1.0.1**, remain available from GitHub Releases for reference and rollback.
+
+The main repository represents the current version of the software; tagged releases preserve previous published versions.
 
 ## Licence
 
-Copyright © 2026 MillbankPWS. All rights reserved.
+See the supplied licence documentation for the terms under which the software is distributed.
 
-The software is made available for **non-commercial use subject to the conditions in `LICENSE.txt`**.
-
-In particular, commercial use, modification, adaptation or redistribution in modified form requires prior written permission from MillbankPWS.
-
-Please read `LICENSE.txt` before installing, modifying or redistributing the software.
-
-## Third-Party Services
-
-WXSIM, Weather Underground and other third-party products or services referred to by this project remain the property of their respective owners.
-
-This software is independently produced and does not imply endorsement by or affiliation with those third parties. Users are responsible for complying with the terms, API conditions and licensing requirements of any third-party services they use.
-
+© 2026 MillbankPWS. All rights reserved.
