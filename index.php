@@ -2508,10 +2508,31 @@ function wu_day($date){
 }
 
 $path=(defined('DATA_DIR')?DATA_DIR:__DIR__.'/data').'/'.DT_FILE;$msg='';$error='';
-if(is_file($path)){$trial=json_decode((string)@file_get_contents($path),true);if(!is_array($trial)||!isset($trial['forecast']))$error='Detailed trial cache is invalid.';}
-else{try{$trial=['created_local'=>date('Y-m-d H:i:s'),'timezone'=>STATION_TIMEZONE,'start'=>DT_START,'end'=>DT_END,'forecast'=>forecast_snapshot()];
- if(!atomic($path,$trial))$error='Could not create separate trial cache: '.$path;else$msg='Trial forecast frozen from the current latest.csv. The normal weekly archive was not changed.';
-}catch(Throwable $x){$error=$x->getMessage();}}
+if(is_file($path)){
+ $trial=json_decode((string)@file_get_contents($path),true);
+ if(!is_array($trial)||!isset($trial['forecast']))$error='Detailed trial cache is invalid.';
+}else{
+ /* v1.0.3 fix: Detailed Comparison must use the forecast frozen at the same
+    instant as the 7-Day archive. Never silently rebuild an old weekly
+    forecast from a later moving latest.csv. */
+ $frozenDetailed=null;
+ if(isset($latestStage1)&&is_array($latestStage1)&&isset($latestStage1['detailedForecast'])&&is_array($latestStage1['detailedForecast'])){
+   $frozenDetailed=$latestStage1['detailedForecast'];
+ }
+ if($frozenDetailed!==null){
+   $trial=['created_local'=>(string)($latestStage1['forecastCapturedLocal']??date('Y-m-d H:i:s')),'timezone'=>STATION_TIMEZONE,'start'=>DT_START,'end'=>DT_END,'forecast'=>$frozenDetailed,'source'=>'frozen Stage 1 archive'];
+   if(!atomic($path,$trial))$error='Could not create separate detailed cache from the frozen Stage 1 archive: '.$path;
+   else $msg='Detailed forecast loaded from the same immutable Stage 1 forecast capture.';
+ }else{
+   try{
+     $trial=['created_local'=>date('Y-m-d H:i:s'),'timezone'=>STATION_TIMEZONE,'start'=>DT_START,'end'=>DT_END,'forecast'=>forecast_snapshot(),'source'=>'legacy latest.csv recovery'];
+     if(!atomic($path,$trial))$error='Could not create separate trial cache: '.$path;
+     else $msg='Legacy detailed forecast cache recovered from latest.csv. Future weeks are frozen with the Stage 1 archive.';
+   }catch(Throwable $x){
+     $error='This weekly archive predates the v1.0.3 Detailed Comparison freeze fix, and the original detailed WXSIM forecast can no longer be recovered from the current latest.csv. The 7-Day and Accuracy archives are unaffected. Detailed Comparison will begin automatically with the next newly frozen weekly forecast.';
+   }
+ }
+}
 $today=date('Y-m-d');$actual=[];$notes=[];
 if(!$error){foreach($trial['forecast'] as $date=>$f){if($date>=$today)continue;[$a,$n]=wu_day($date);if($a!==null)$actual[$date]=$a;if($n)$notes[$date]=$n;}}
 $metrics=[
