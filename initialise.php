@@ -227,7 +227,7 @@ if (!is_array($header) || !is_array($units)) {
 $header = clean_row($header);
 $units = clean_row($units);
 
-$required = array('Year','Month','Day','Time','Temperature','Hi Temp','Low Temp','Wind Spd.','Tot.Prcp','Solar Rad','1 min Gust','10 min Gust','1 hr Gust','6 hr Gust');
+$required = array('Year','Month','Day','Time','Temperature','Hi Temp','Low Temp','Rel.Hum.','Dew Pt.','Wet Bulb','Wind Spd.','Wind Dir.','Tot.Prcp','S.L.P.','Wind Chl','Heat Ind','Solar Rad','UV Index','1 min Gust','10 min Gust','1 hr Gust','6 hr Gust');
 $idx = array();
 foreach ($required as $name) {
     $pos = array_search($name, $header, true);
@@ -262,6 +262,25 @@ function wxsim_precip_to_mm($v) {
     global $wxsimSourceUnits;
     if ($v===null) return null;
     return $wxsimSourceUnits==='imperial' ? ($v*25.4) : $v;
+}
+function wxsim_pressure_to_hpa($v) {
+    global $wxsimSourceUnits;
+    if ($v===null) return null;
+    return $wxsimSourceUnits==='imperial' ? ($v*33.8638866667) : $v;
+}
+function wxsim_values($rows,$key) {
+    $out=array();
+    foreach ($rows as $r) if (isset($r[$key]) && $r[$key]!==null && is_numeric($r[$key])) $out[]=(float)$r[$key];
+    return $out;
+}
+function wxsim_avg($a) { return count($a) ? array_sum($a)/count($a) : null; }
+function wxsim_circ_avg($a) {
+    if (!count($a)) return null;
+    $sin=0.0; $cos=0.0;
+    foreach ($a as $v) { $r=deg2rad((float)$v); $sin+=sin($r); $cos+=cos($r); }
+    if (abs($sin)<1e-12 && abs($cos)<1e-12) return null;
+    $d=rad2deg(atan2($sin,$cos));
+    return $d<0 ? $d+360.0 : $d;
 }
 $temperatureUnit = trim($units[$idx['Temperature']] ?? '');
 $precipUnit = trim($units[$idx['Tot.Prcp']] ?? '');
@@ -300,9 +319,17 @@ while (($row = fgetcsv($csvHandle, 0, ',', '"', '\\')) !== false) {
         'temp'=>wxsim_temp_to_c(numeric_or_null(isset($row[$idx['Temperature']])?$row[$idx['Temperature']]:'')),
         'hi'=>wxsim_temp_to_c(numeric_or_null(isset($row[$idx['Hi Temp']])?$row[$idx['Hi Temp']]:'')),
         'lo'=>wxsim_temp_to_c(numeric_or_null(isset($row[$idx['Low Temp']])?$row[$idx['Low Temp']]:'')),
+        'rh'=>numeric_or_null(isset($row[$idx['Rel.Hum.']])?$row[$idx['Rel.Hum.']]:''),
+        'dew'=>wxsim_temp_to_c(numeric_or_null(isset($row[$idx['Dew Pt.']])?$row[$idx['Dew Pt.']]:'')),
+        'wet'=>wxsim_temp_to_c(numeric_or_null(isset($row[$idx['Wet Bulb']])?$row[$idx['Wet Bulb']]:'')),
         'windKnots'=>numeric_or_null(isset($row[$idx['Wind Spd.']])?$row[$idx['Wind Spd.']]:''),
+        'windDir'=>numeric_or_null(isset($row[$idx['Wind Dir.']])?$row[$idx['Wind Dir.']]:''),
         'precipCum'=>wxsim_precip_to_mm(numeric_or_null(isset($row[$idx['Tot.Prcp']])?$row[$idx['Tot.Prcp']]:'')),
+        'pressure'=>wxsim_pressure_to_hpa(numeric_or_null(isset($row[$idx['S.L.P.']])?$row[$idx['S.L.P.']]:'')),
+        'windChill'=>wxsim_temp_to_c(numeric_or_null(isset($row[$idx['Wind Chl']])?$row[$idx['Wind Chl']]:'')),
+        'heatIndex'=>wxsim_temp_to_c(numeric_or_null(isset($row[$idx['Heat Ind']])?$row[$idx['Heat Ind']]:'')),
         'solar'=>numeric_or_null(isset($row[$idx['Solar Rad']])?$row[$idx['Solar Rad']]:''),
+        'uv'=>numeric_or_null(isset($row[$idx['UV Index']])?$row[$idx['UV Index']]:''),
         'gust1'=>numeric_or_null(isset($row[$idx['1 min Gust']])?$row[$idx['1 min Gust']]:''),
         'gust10'=>numeric_or_null(isset($row[$idx['10 min Gust']])?$row[$idx['10 min Gust']]:''),
         'gust1h'=>numeric_or_null(isset($row[$idx['1 hr Gust']])?$row[$idx['1 hr Gust']]:''),
@@ -366,6 +393,7 @@ if (is_file($outFile)) {
 }
 
 $days = array();
+$detailedForecast = array();
 $previousDayFinalPrecip = null;
 foreach ($dates as $n=>$date) {
     $rr = $grouped[$date];
@@ -410,6 +438,30 @@ foreach ($dates as $n=>$date) {
             'finalCumulativeRainMm'=>$finalPrecip
         )
     );
+    $dewVals=wxsim_values($rr,'dew');
+    $rhVals=wxsim_values($rr,'rh');
+    $wetVals=wxsim_values($rr,'wet');
+    $pressureVals=wxsim_values($rr,'pressure');
+    $dirVals=wxsim_values($rr,'windDir');
+    $uvVals=wxsim_values($rr,'uv');
+    $chillVals=wxsim_values($rr,'windChill');
+    $heatVals=wxsim_values($rr,'heatIndex');
+    $detailedForecast[$date]=array(
+        'max_temp_c'=>count($hiVals)?max($hiVals):null,
+        'min_temp_c'=>count($loVals)?min($loVals):null,
+        'dewpoint_c'=>wxsim_avg($dewVals),
+        'humidity_pct'=>wxsim_avg($rhVals),
+        'wetbulb_c'=>wxsim_avg($wetVals),
+        'pressure_hpa'=>wxsim_avg($pressureVals),
+        'rain_mm'=>$rainMm,
+        'wind_kmh'=>count($windVals)?wind_to_kmh(max($windVals),$windUnit):null,
+        'gust_kmh'=>count($gustVals)?wind_to_kmh(max($gustVals),$gustUnit):null,
+        'wind_dir_deg'=>wxsim_circ_avg($dirVals),
+        'solar_wm2'=>count($solarVals)?max($solarVals):null,
+        'uv_index'=>count($uvVals)?max($uvVals):null,
+        'wind_chill_c'=>count($chillVals)?min($chillVals):null,
+        'heat_index_c'=>count($heatVals)?max($heatVals):null
+    );
 }
 
 $firstTime=$records[0]['time'];
@@ -441,7 +493,9 @@ $archive = array(
     'forecastCapturedUTC'=>gmdate('Y-m-d H:i:s'),
     'actualLastUpdate'=>null,
     'actualLastUpdateUTC'=>null,
-    'days'=>$days
+    'days'=>$days,
+    'detailedForecast'=>$detailedForecast,
+    'detailedForecastSchema'=>'wxsim_detailed_v1'
 );
 
 if (!$isCli) {
