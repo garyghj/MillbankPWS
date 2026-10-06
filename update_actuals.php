@@ -95,15 +95,49 @@ function actual_complete($actual) {
 function find_archive_for_date($dir, $date) {
     $files = glob($dir . '/*.json');
     if (!$files) return array(null,null,'No JSON archives found in data/weeks');
-    sort($files,SORT_STRING);
+
+    /*
+     * More than one weekly archive can contain the same calendar date after
+     * a start-day change/reinitialisation.  The active archive is the newest
+     * applicable weekly archive, i.e. the one with the latest periodStart
+     * that is not later than the requested actual date.
+     *
+     * Do not simply return the first filename match: that can select a
+     * superseded overlapping week and leave the current 7-Day Comparison
+     * without its actuals.
+     */
+    $matches=array();
+
     foreach ($files as $path) {
         $j=read_json($path);
         if (!is_array($j) || !isset($j['days']) || !is_array($j['days'])) continue;
+
         foreach ($j['days'] as $i=>$day) {
-            if (isset($day['date']) && $day['date']===$date) return array($path,$i,'');
+            if (isset($day['date']) && $day['date']===$date) {
+                $periodStart = isset($j['periodStart']) ? (string)$j['periodStart'] : basename($path,'.json');
+
+                /* Ignore an internally inconsistent candidate. */
+                if (!preg_match('/^\d{4}-\d{2}-\d{2}$/',$periodStart) || $periodStart > $date) continue;
+
+                $matches[]=array(
+                    'path'=>$path,
+                    'index'=>$i,
+                    'periodStart'=>$periodStart
+                );
+                break;
+            }
         }
     }
-    return array(null,null,'No CSV forecast archive contains '.$date);
+
+    if (!$matches) return array(null,null,'No CSV forecast archive contains '.$date);
+
+    usort($matches,function($a,$b){
+        if ($a['periodStart']===$b['periodStart'])
+            return strcmp($b['path'],$a['path']);
+        return strcmp($b['periodStart'],$a['periodStart']);
+    });
+
+    return array($matches[0]['path'],$matches[0]['index'],'');
 }
 
 if (!defined('STATION_TIMEZONE') || !defined('WU_STATION_ID') || !defined('WU_API_KEY'))
